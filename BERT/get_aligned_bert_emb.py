@@ -1,6 +1,4 @@
-# -*- coding:utf-8 -*-
-# Filename: get_token_emb.py
-# Date: 2018-12-13 20:13:28 Thursday
+
 
 import json
 import argparse
