@@ -289,4 +289,3 @@ Thank you for exploring this NLP Projects Repository! I hope you find it useful 
 - **Flexibility**: The README is written to be adaptable. If the repository contains different projects (e.g., a specific focus on text summarization or speech recognition), you can modify the "Example Projects" section accordingly.
 - **Screenshots**: I didn’t include screenshots since I can’t generate or view the app, but you can add them by running the projects and capturing outputs (e.g., a word cloud from a text analysis project).
 
-Let me know if you’d like to adjust or add more details to the README!
