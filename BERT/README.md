@@ -178,18 +178,18 @@ max         :    0.3     0.4     0.8     0.7     0.6  (max per dim)
 The embedding extraction is a **two-step pipeline** orchestrated by `run.sh`:
 
 ```
-┌───────────────┐     ┌──────────────────────────┐     ┌────────────────────────┐
-│   Input File  │     │   Step 1: extract_features│     │  Intermediate JSON     │
-│ (one sentence │────▶│   .py                     │────▶│  (subword-level BERT   │
-│  per line)    │     │                           │     │   embeddings + mapping)│
-└───────────────┘     │  • Loads BERT checkpoint  │     └───────────┬────────────┘
-                      │  • WordPiece tokenization │                 │
-                      │  • Forward pass through   │                 │
-                      │    Transformer layers      │                 ▼
-                      │  • Extracts hidden states  │     ┌────────────────────────┐
-                      │    from specified layer(s)  │     │  Step 2: get_aligned_  │
-                      │  • Builds orig_to_tok_map  │     │  bert_emb.py           │
-                      └──────────────────────────┘     │                        │
+┌───────────────┐     ┌──────────────────────────┐       ┌────────────────────────┐
+│   Input File  │     │  Step 1: extract_features │      │  Intermediate JSON     │
+│ (one sentence │────▶│   .py                    │────▶│  (subword-level BERT   │
+│  per line)    │     │                           │      │   embeddings + mapping)│
+└───────────────┘     │  • Loads BERT checkpoint  │      └───────────┬────────────┘
+                      │  • WordPiece tokenization │                  │
+                      │  • Forward pass through   │                  │
+                      │    Transformer layers     │                  ▼
+                      │  • Extracts hidden states │     ┌────────────────────────┐
+                      │    from specified layer(s)│     │  Step 2: get_aligned_  │
+                      │  • Builds orig_to_tok_map │     │  bert_emb.py           │
+                      └──────────────────────────┘      │                        │
                                                         │  • Reads JSON output   │
                                                         │  • Applies alignment   │
                                                         │    strategy (first/    │
