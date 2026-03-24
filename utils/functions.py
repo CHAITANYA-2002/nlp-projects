@@ -1,3 +1,17 @@
+"""
+functions.py - Data I/O and Embedding Utility Functions
+
+Provides helper functions for:
+1. normalize_word(): Replaces digits with '0' for number normalization
+2. read_instance(): Reads CoNLL-format NER data and converts to numerical IDs
+   - Supports both sequence labeling (CoNLL 2003) and sentence classification formats
+   - Builds word/char/label ID sequences and tracks word indices for memory bank
+3. build_pretrain_embedding(): Loads pretrained embeddings (GloVe, etc.) and aligns
+   them with the vocabulary alphabet (handles case matching and OOV words)
+4. load_pretrain_emb(): Parses embedding files in standard format (word dim1 dim2 ...)
+5. norm2one(): L2-normalizes a vector to unit length
+"""
+
 from __future__ import print_function
 from __future__ import absolute_import
 import sys
@@ -5,6 +19,11 @@ import numpy as np
 import codecs
 
 def normalize_word(word):
+    """
+    Replace all digit characters with '0' for number normalization.
+    This reduces vocabulary sparsity by treating all numbers uniformly.
+    Example: '1993' -> '0000', 'B-52' -> 'B-00'
+    """
     new_word = ""
     for char in word:
         if char.isdigit():
@@ -15,6 +34,33 @@ def normalize_word(word):
 
 
 def read_instance(input_file, word_alphabet, char_alphabet, feature_alphabets, label_alphabet, number_normalized, max_sent_length, sentence_classification=False, split_token='\t', word_idx=1, word_mat=None, mem_mat=None, char_padding_size=-1, char_padding_symbol = '</pad>'):
+    """
+    Read NER data from a file and convert tokens to numerical IDs.
+    
+    Supports two formats:
+    - Sequence labeling (CoNLL 2003): One token per line, blank line between sentences
+    - Sentence classification: One sentence per line, tab-separated
+    
+    Also builds the word_mat (word-to-instance index mapping) and mem_mat
+    (label memory) needed by the document-level memory bank.
+    
+    Args:
+        input_file: Path to the data file.
+        word_alphabet: Alphabet for word tokens.
+        char_alphabet: Alphabet for characters.
+        feature_alphabets: List of Alphabets for additional features.
+        label_alphabet: Alphabet for NER labels.
+        number_normalized: Whether to normalize digits to '0'.
+        max_sent_length: Max sentence length to include (-1 for unlimited).
+        sentence_classification: Whether data is in classification format.
+        split_token: Delimiter for classification format.
+        word_idx: Starting global word instance index (for memory bank).
+        word_mat: word_id -> [list of global instance indices with this word].
+        mem_mat: List of label IDs for all word instances.
+        
+    Returns:
+        (texts, Ids, mem_mat, word_mat, word_idx) - Parsed data and updated state.
+    """
     feature_num = len(feature_alphabets)
     in_lines = open(input_file,'r', encoding="utf8").readlines()
     instence_texts = []
@@ -163,6 +209,21 @@ def read_instance(input_file, word_alphabet, char_alphabet, feature_alphabets, l
 
 
 def build_pretrain_embedding(embedding_path, word_alphabet, embedd_dim=100, norm=True):
+    """
+    Build a pretrained embedding matrix aligned with the vocabulary alphabet.
+    
+    Matches vocabulary words to pretrained embeddings (case-sensitive first,
+    then case-insensitive). Out-of-vocabulary words get random embeddings.
+    
+    Args:
+        embedding_path: Path to the pretrained embedding file.
+        word_alphabet: Alphabet containing the vocabulary.
+        embedd_dim: Embedding dimension (overridden by actual file dimension).
+        norm: Whether to L2-normalize the embeddings.
+        
+    Returns:
+        (pretrain_emb, embedd_dim) - Embedding matrix and its dimension.
+    """
     embedd_dict = dict()
     if embedding_path != None:
         embedd_dict, embedd_dim = load_pretrain_emb(embedding_path)
@@ -193,10 +254,22 @@ def build_pretrain_embedding(embedding_path, word_alphabet, embedd_dim=100, norm
     return pretrain_emb, embedd_dim
 
 def norm2one(vec):
+    """L2-normalize a vector to unit length."""
     root_sum_square = np.sqrt(np.sum(np.square(vec)))
     return vec/root_sum_square
 
 def load_pretrain_emb(embedding_path):
+    """
+    Load pretrained embeddings from a text file.
+    Format: one line per word, space-separated: 'word dim1 dim2 ... dimN'
+    
+    Args:
+        embedding_path: Path to the embedding file.
+        
+    Returns:
+        (embedd_dict, embedd_dim) - Dictionary mapping words to embedding vectors,
+                                    and the embedding dimension.
+    """
     embedd_dim = -1
     embedd_dict = dict()
     with open(embedding_path, 'r', encoding="utf8") as file:

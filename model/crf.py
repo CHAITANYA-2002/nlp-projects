@@ -1,10 +1,41 @@
+"""
+crf.py - Conditional Random Field (CRF) for Sequence Labeling
+
+Implements a linear-chain CRF layer for structured prediction in NER.
+Rather than making independent label decisions at each position (like softmax),
+the CRF models dependencies between adjacent labels through a learned
+transition matrix, encouraging valid label sequences (e.g., B-PER -> I-PER).
+
+Core Components:
+    1. Transition Matrix: Learnable (tag_size+2, tag_size+2) matrix where
+       entry [i,j] is the score of transitioning from tag i to tag j.
+       +2 accounts for START_TAG and STOP_TAG markers.
+       
+    2. Forward Algorithm (_calculate_PZ): Computes the partition function Z
+       (log of the sum of scores over ALL possible label sequences) using
+       dynamic programming. This is the normalizer for the CRF loss.
+       
+    3. Viterbi Decoding (_viterbi_decode): Finds the highest-scoring label
+       sequence using dynamic programming with backpointers.
+       
+    4. Score Sentence (_score_sentence): Computes the score of a specific
+       (gold) label sequence by summing emission + transition scores.
+       
+    5. N-best Decoding (_viterbi_decode_nbest): Finds the top-N label
+       sequences with their probabilities.
+
+Loss: NLL = forward_score - gold_score (negative log-likelihood)
+"""
+
 from __future__ import print_function
 import torch
 import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.functional as F
-START_TAG = -2
-STOP_TAG = -1
+
+# Special tag indices for CRF boundary markers
+START_TAG = -2  # Beginning-of-sequence marker
+STOP_TAG = -1   # End-of-sequence marker
 
 
 # Compute log sum exp in a numerically stable way for the forward algorithm
@@ -22,6 +53,16 @@ def log_sum_exp(vec, m_size):
     return max_score.view(-1, m_size) + torch.log(torch.sum(torch.exp(vec - max_score.expand_as(vec)), 1)).view(-1, m_size)  # B * M
 
 class CRF(nn.Module):
+    """
+    Linear-chain Conditional Random Field for sequence labeling.
+    
+    Models label dependencies through a learnable transition matrix,
+    producing globally optimal label sequences via Viterbi decoding.
+    
+    Args:
+        tagset_size: Number of label types (excluding START/STOP).
+        gpu: Whether to use GPU.
+    """
 
     def __init__(self, tagset_size, gpu):
         super(CRF, self).__init__()
@@ -249,7 +290,21 @@ class CRF(nn.Module):
         return gold_score
 
     def neg_log_likelihood_loss(self, feats, mask, tags):
-        # nonegative log likelihood
+        """
+        Compute the negative log-likelihood CRF loss.
+        
+        Loss = log(Z) - score(gold_sequence)
+        where Z is the partition function (sum of scores over all sequences)
+        and score(gold) is the score of the correct label sequence.
+        
+        Args:
+            feats: (batch, seq_len, tag_size+2) - Emission scores from the model.
+            mask: (batch, seq_len) - Binary mask for valid positions.
+            tags: (batch, seq_len) - Gold label sequence indices.
+            
+        Returns:
+            (batch_size,) - Per-instance NLL loss.
+        """
         batch_size = feats.size(0)
         forward_score, scores = self._calculate_PZ(feats, mask)
         gold_score = self._score_sentence(scores, mask, tags)

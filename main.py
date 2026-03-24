@@ -1,3 +1,29 @@
+"""
+main.py - Training, Evaluation, and Testing Pipeline
+
+Entry point for the Hierarchical Contextualized Representation NER system.
+Handles the complete ML pipeline:
+
+1. Configuration: Parses CLI arguments and config files (demo.train.config)
+2. Data initialization: Builds word/char/label alphabets from training data
+3. Instance generation: Converts text data to numerical tensors
+4. Embedding loading: Loads pretrained word/char/label embeddings
+5. Training loop:
+   - Epoch-based training with configurable optimizer (SGD/Adam/etc.)
+   - Learning rate decay for SGD
+   - Batch processing with padding and sorting by length
+   - Memory bank update after each epoch (correctly predicted words)
+   - Dev/test evaluation after each epoch
+   - Best model saving based on dev F1-score
+6. Testing: Loads a saved model and evaluates on test data
+
+Usage:
+    Training: python main.py --config demo.train.config
+    Testing:  python main.py --config demo.test.config
+    
+CLI args override config file settings when --config is 'None'.
+"""
+
 from __future__ import print_function
 import time
 import sys
@@ -8,9 +34,9 @@ import gc
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from utils.metric import get_ner_fmeasure
-from model.seqlabel import SeqLabel
-from utils.data import Data
+from utils.metric import get_ner_fmeasure  # NER evaluation (precision, recall, F1)
+from model.seqlabel import SeqLabel          # Sequence labeling model (BiLSTM-CRF)
+from utils.data import Data                  # Central configuration and data management
 import os
 import codecs
 
@@ -20,13 +46,20 @@ except ImportError:
     import pickle
 
 
+# Set random seeds across all libraries for reproducible results
 seed_num = 42
 random.seed(seed_num)
 torch.manual_seed(seed_num)
 np.random.seed(seed_num)
 torch.cuda.manual_seed(seed_num)
 
+
 def data_initialization(data):
+    """
+    Initialize alphabets (vocabularies) from the training data.
+    Reads train/dev/test files to build word, character, and label vocabularies,
+    then freezes them to prevent new entries during inference.
+    """
     data.initial_feature_alphabets()
     data.build_alphabet(data.train_dir)
     data.build_alphabet(data.dev_dir)
@@ -119,6 +152,7 @@ def recover_nbest_label(pred_variable, mask_variable, label_alphabet, word_recov
 
 
 def lr_decay(optimizer, epoch, decay_rate, init_lr):
+    """Apply learning rate decay: lr = init_lr / (1 + decay_rate * epoch)."""
     lr = init_lr/(1+decay_rate*epoch)
     print(" Learning rate is set as:", lr)
     for param_group in optimizer.param_groups:
@@ -128,6 +162,22 @@ def lr_decay(optimizer, epoch, decay_rate, init_lr):
 
 
 def evaluate(data, model, name, nbest=None, idx=0):
+    """
+    Evaluate the model on a specified dataset split.
+    
+    Runs inference in batches, collects predictions, and computes
+    NER metrics (accuracy, precision, recall, F1-score).
+    
+    Args:
+        data: Data configuration object.
+        model: Trained SeqLabel model.
+        name: Dataset split ('train', 'dev', 'test', or 'raw').
+        nbest: If set, use n-best Viterbi decoding.
+        idx: Current epoch index.
+        
+    Returns:
+        (speed, acc, p, r, f, pred_results, pred_scores)
+    """
     if name == "train":
         instances = data.train_Ids
     elif name == "dev":
@@ -353,6 +403,16 @@ def batchify_sentence_classification_with_label(input_batch_list, gpu, if_train=
 
 
 def train(data):
+    """
+    Main training loop.
+    
+    For each epoch:
+    1. Shuffle training data
+    2. Process batches: forward pass, loss computation, backpropagation
+    3. Track correctly predicted words for memory bank update
+    4. Evaluate on dev set, save best model
+    5. Evaluate on test set for monitoring
+    """
     print("Training model...")
     data.show_data_summary()
     save_data_name = data.model_dir +".dset"
@@ -485,6 +545,16 @@ def train(data):
         
 
 def load_model_test(data, name):
+    """
+    Load a pre-trained model and evaluate it on the specified dataset.
+    
+    Args:
+        data: Data object with model path and test data.
+        name: Dataset split to evaluate ('test', 'dev', etc.).
+        
+    Returns:
+        (pred_results, pred_scores) - Predicted labels and scores.
+    """
     print("Load Model from file: ", data.dset_dir)
     model = SeqLabel(data)
     model.load_state_dict(torch.load(data.load_model_dir))
@@ -501,6 +571,7 @@ def load_model_test(data, name):
 
 
 if __name__ == '__main__':
+    # === Command-Line Argument Parsing ===
     parser = argparse.ArgumentParser(description='Tuning with NCRF++')
     # parser.add_argument('--status', choices=['train', 'decode'], help='update algorithm', default='train')
     parser.add_argument('--config',  help='Configuration File', default='None')

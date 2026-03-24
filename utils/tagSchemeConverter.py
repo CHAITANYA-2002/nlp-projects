@@ -1,9 +1,32 @@
+"""
+tagSchemeConverter.py - NER Tag Scheme Converter
+
+Converts between different NER tag representation schemes used in sequence
+labeling tasks. Standard CoNLL-format data format is expected (one token
+per line, blank lines between sentences).
+
+Supported conversions:
+- IOB  -> BIO:   Fixes invalid IOB sequences (I- without preceding B-)
+- BIO  -> BIOES: Adds End (E-) and Single (S-) tags for richer boundary info
+- BIOES -> BIO:  Simplifies by merging E->I and S->B
+- IOB  -> BIOES: Two-step conversion via BIO intermediate
+
+Usage:
+    python tagSchemeConverter.py <conversion_type> <input_file> <output_file>
+    Example: python tagSchemeConverter.py BIO2BIOES data.bio data.bioes
+"""
+
 from __future__ import print_function
 
 import sys
 
 
 def BIO2BIOES(input_file, output_file):
+    """
+    Convert BIO tag scheme to BIOES (also called BMES).
+    - B- at end of entity or followed by non-I -> S- (Single)
+    - I- at end of entity or followed by non-I -> E- (End)
+    """
     print("Convert BIO -> BIOES for file:", input_file)
     with open(input_file,'r') as in_file:
         fins = in_file.readlines()
@@ -41,6 +64,11 @@ def BIO2BIOES(input_file, output_file):
 
 
 def BIOES2BIO(input_file, output_file):
+    """
+    Convert BIOES tag scheme back to BIO.
+    - E- (End) -> I- (Inside)
+    - S- (Single) -> B- (Begin)
+    """
     print("Convert BIOES -> BIO for file:", input_file)
     with open(input_file,'r') as in_file:
         fins = in_file.readlines()
@@ -73,6 +101,11 @@ def BIOES2BIO(input_file, output_file):
 
 
 def IOB2BIO(input_file, output_file):
+    """
+    Convert IOB tag scheme to BIO.
+    In IOB, I- can start an entity. In BIO, entities must start with B-.
+    This fixes any I- tag that should be a B- (first token or after O/different type).
+    """
     print("Convert IOB -> BIO for file:", input_file)
     with open(input_file,'r') as in_file:
         fins = in_file.readlines()
@@ -103,6 +136,7 @@ def IOB2BIO(input_file, output_file):
 
 
 def choose_label(input_file, output_file):
+    """Extract only the first and last columns from a CoNLL-format file."""
     with open(input_file,'r') as in_file:
         fins = in_file.readlines()
     with open(output_file,'w') as fout:

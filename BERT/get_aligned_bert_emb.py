@@ -1,3 +1,21 @@
+"""
+get_aligned_bert_emb.py - BERT Subword-to-Token Embedding Alignment
+
+BERT uses WordPiece tokenization which splits words into subword pieces.
+For NER (which operates at the token level), we need to map these subword
+embeddings back to the original token boundaries.
+
+This script reads BERT's JSON output (from extract_features.py) and produces
+token-level embeddings using one of three alignment strategies:
+
+Modes:
+    - 'first': Use the embedding of the first subword piece per token
+    - 'mean':  Average all subword piece embeddings for each token
+    - 'max':   Element-wise maximum across subword piece embeddings
+
+Usage:
+    python get_aligned_bert_emb.py -i bert_output.json -m first -r output.emb
+"""
 
 
 import json
@@ -23,7 +41,7 @@ def parse_args(args=None):
 
 
 def reduce_mean_list(ls):
-    ''' arverage the mutiple list'''
+    """Compute element-wise average of multiple lists (for 'mean' mode)."""
     if len(ls) == 1:
         return ls[0]
     for item in ls[1:]:
@@ -32,6 +50,7 @@ def reduce_mean_list(ls):
     return [value / len(ls) for value in ls[0]]
 
 def reduce_max_list(ls):
+    """Compute element-wise maximum of multiple lists (for 'max' mode)."""
     if len(ls) == 1:
         return ls[0]
     max_ls = ls[0]
@@ -43,6 +62,10 @@ def reduce_max_list(ls):
 
 
 def main(args):
+    """
+    Read BERT JSON output and produce aligned token-level embeddings.
+    Maps subword piece embeddings to original tokens using the specified mode.
+    """
     with codecs.open(args.input_file, "r") as input_f, \
          codecs.open(args.output_file, "w", encoding="utf-8") as output_f:
         for line in input_f:

@@ -1,7 +1,25 @@
+"""
+metric.py - NER Evaluation Metrics
+
+Computes standard Named Entity Recognition evaluation metrics:
+- **Accuracy**: Token-level prediction accuracy (correct tags / total tags)
+- **Precision**: Fraction of predicted entity spans that match gold spans
+- **Recall**: Fraction of gold entity spans that are correctly predicted
+- **F1-Score**: Harmonic mean of precision and recall
+
+Supports two tag schemes for entity span extraction:
+- **BIO**: Begin-Inside-Outside (B-PER, I-PER, O)
+- **BIOES/BMES**: Begin-Inside-Outside-End-Single (B-PER, I-PER, E-PER, S-PER, O)
+
+Entity matching is done at the span level — a predicted entity is correct
+only if both the entity type AND the exact span boundaries match the gold.
+
+Also provides file-based evaluation utilities for reading CoNLL-format
+prediction files and computing metrics from prediction output files.
+"""
+
 from __future__ import print_function
 import sys
-
-
 
 ## input as sentence level labels
 def get_ner_fmeasure(golden_lists, predict_lists, label_type="BMES"):

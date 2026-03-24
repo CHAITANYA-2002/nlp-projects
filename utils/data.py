@@ -1,8 +1,28 @@
+"""
+data.py - Central Data Configuration and Management
+
+The Data class is the central hub that holds ALL configuration, data paths,
+hyperparameters, alphabets (vocabularies), embedding matrices, and parsed
+training/dev/test instances. It is passed to every model component.
+
+Key responsibilities:
+1. Configuration parsing: Reads .config files and populates all settings
+2. Alphabet building: Constructs word/char/label vocabularies from data files
+3. Instance generation: Converts raw text data into numerical ID sequences
+4. Embedding loading: Loads and aligns pretrained embeddings with vocabularies
+5. Serialization: Save/load the entire data state via pickle
+6. Tag scheme detection: Auto-detects BIO vs BIOES from label patterns
+7. Memory bank data: Maintains word_mat and mem_mat for document-level features
+
+The config file format uses 'key=value' pairs with '#' for comments.
+See demo.train.config and demo.test.config for examples.
+"""
+
 from __future__ import print_function
 from __future__ import absolute_import
 import sys
-from .alphabet import Alphabet
-from .functions import *
+from .alphabet import Alphabet  # Token-index mapping for words, chars, labels
+from .functions import *         # Data reading and embedding utilities
 
 try:
     import cPickle as pickle
@@ -15,6 +35,13 @@ UNKNOWN = "</unk>"
 PADDING = "</pad>"
 
 class Data:
+    """
+    Central configuration hub for the NER system.
+    
+    Stores all settings (I/O paths, hyperparameters, network config),
+    vocabularies (Alphabets for words/chars/labels), pretrained embeddings,
+    and parsed data instances. Passed to every model component.
+    """
     def __init__(self):
         self.sentence_classification = False
         self.MAX_SENTENCE_LENGTH = 250
@@ -124,6 +151,7 @@ class Data:
         self.HP_l2 = 1e-8
 
     def show_data_summary(self):
+        """Print a formatted summary of all data settings and configurations."""
         
         print("++"*50)
         print("DATA SUMMARY START:")
@@ -209,6 +237,7 @@ class Data:
 
 
     def initial_feature_alphabets(self):
+        """Auto-detect additional features from the first line of training data."""
         if self.sentence_classification:
             ## if sentence classification data format, splited by '\t'
             items = open(self.train_dir,'r').readline().strip('\n').split('\t')
@@ -238,6 +267,7 @@ class Data:
 
 
     def build_alphabet(self, input_file):
+        """Read a data file and add all tokens/chars/labels to their alphabets."""
         in_lines = open(input_file,'r').readlines()
         for line in in_lines:
             if len(line) > 2:
@@ -300,6 +330,7 @@ class Data:
 
 
     def fix_alphabet(self):
+        """Freeze all alphabets to prevent new entries during inference."""
         self.word_alphabet.close()
         self.char_alphabet.close()
         self.label_alphabet.close()
@@ -308,6 +339,7 @@ class Data:
 
 
     def build_pretrain_emb(self):
+        """Load pretrained embeddings for words, labels, chars, and features."""
         if self.word_emb_dir:
             print("Load pretrained word embedding, norm: %s, dir: %s"%(self.norm_word_emb, self.word_emb_dir))
             self.pretrain_word_embedding, self.word_emb_dim = build_pretrain_embedding(self.word_emb_dir, self.word_alphabet, self.word_emb_dim, self.norm_word_emb)
@@ -324,6 +356,7 @@ class Data:
 
 
     def generate_instance(self, name):
+        """Convert raw text data to numerical ID sequences for the given split."""
         self.fix_alphabet()
         if len(self.word_mat) == 0:
             self.word_mat = [[] for i in range(self.word_alphabet_size)]
@@ -420,6 +453,7 @@ class Data:
 
 
     def read_config(self,config_file):
+        """Parse a key=value config file and populate all Data attributes."""
         config = config_file_to_dict(config_file)
         ## read data:
         the_item = 'train_dir'
@@ -609,6 +643,7 @@ class Data:
 
 
 def config_file_to_dict(input_file):
+    """Parse a config file into a dictionary. Handles comments (#) and feature configs."""
     config = {}
     fins = open(input_file,'r').readlines()
     for line in fins:
@@ -649,6 +684,7 @@ def config_file_to_dict(input_file):
 
 
 def str2bool(string):
+    """Convert string 'True'/'true'/'TRUE' to boolean True, else False."""
     if string == "True" or string == "true" or string == "TRUE":
         return True
     else:
