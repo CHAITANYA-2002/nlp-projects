@@ -180,7 +180,7 @@ The embedding extraction is a **two-step pipeline** orchestrated by `run.sh`:
 ```
 ┌───────────────┐     ┌──────────────────────────┐       ┌────────────────────────┐
 │   Input File  │     │  Step 1: extract_features │      │  Intermediate JSON     │
-│ (one sentence │────▶│   .py                    │────▶│  (subword-level BERT   │
+│ (one sentence │────▶│   .py                     │────▶│  (subword-level BERT   │
 │  per line)    │     │                           │      │   embeddings + mapping)│
 └───────────────┘     │  • Loads BERT checkpoint  │      └───────────┬────────────┘
                       │  • WordPiece tokenization │                  │
