@@ -8,7 +8,7 @@ words, sentences, and whole documents — implementing Luo, Xiao and Zhao's
 > **What this repository is.** It is a study of an existing research codebase,
 > not an independent reimplementation. The model code is derived from published
 > work by other authors; see [NOTICE](NOTICE) for the full provenance. What was
-> added here is a **175-test suite**, corrected documentation, and the fixes
+> added here is a **190-test suite**, corrected documentation, and the fixes
 > listed under [What changed](#what-changed) — including six defects that
 > stopped the code running at all on a current PyTorch.
 
@@ -57,6 +57,17 @@ Each level answers a question the level below cannot:
 | Document | `MemoryBank` | How was this same word tagged earlier in the document? A token ambiguous in isolation is often unambiguous on its second mention. |
 | Decoding | `CRF` | Which *sequence* of labels is jointly best? `B-PER` cannot be followed by `S-LOC`; the CRF learns those constraints instead of tagging each token independently. |
 
+Concatenation is the whole mechanism, so the widths add up in a way that is easy
+to see and was easy to get wrong:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/dimension-flow-dark.png">
+  <img alt="Feature width at each stage of the hierarchy: 160 character + 100 word = 260, plus 128 from SentenceRep = 388 into the main BiLSTM, which outputs 256, projected to 9 label scores" src="docs/assets/dimension-flow-light.png">
+</picture>
+
+Every number in that chart is measured from an instantiated model, not written
+down by hand. Regenerate it with `python scripts/make_figures.py`.
+
 ---
 
 ## Why each piece exists
@@ -94,8 +105,18 @@ output_dim = char_emb_dim × kernel_type + n_blocks × char_hidden_dim × kernel
 
 The dense connections carry the initial embedding-width convolutions all the way
 to the output, so `char_emb_dim` appears in the total. Downstream modules read
-`IntNet.output_dim` instead of re-deriving it — see
-[What changed](#what-changed), where re-deriving it was a real bug.
+`IntNet.output_dim` instead of re-deriving it — and the right-hand panel below is
+exactly why:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/intnet-width-dark.png">
+  <img alt="Left: IntNet output width against intNet_layer for four configurations. Right: measured width versus the width the old downstream formula assumed, matching only when char_emb_dim is twice char_hidden_dim" src="docs/assets/intnet-width-light.png">
+</picture>
+
+The blue bars are what IntNet returns; the orange bars are what `SentenceRep` and
+`WordSequence` used to assume. They coincide only in the shipped configuration.
+Any other ratio produced a model whose BiLSTM was sized for a tensor that never
+arrived.
 
 ### MemoryBank — the document-level trick
 
@@ -116,13 +137,28 @@ to itself at the current position.
 Per-token softmax will happily emit `B-PER` followed by `S-LOC`. The CRF scores
 whole sequences using a learned transition matrix and picks the best one by
 Viterbi. Transitions into `START`, out of `STOP`, and anything touching the
-padding index are pinned at `-10000`, so those paths are unreachable.
+padding index are pinned at `-10000`, so those paths are unreachable before a
+single gradient step:
 
-The tests verify this the strong way. For short sequences and a small tag set,
-every possible labelling is enumerated by brute force, and Viterbi's answer is
-required to be the argmax over that full enumeration — with the forward
-algorithm's partition function checked against the brute-force log-sum-exp to
-within `1e-3`.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/crf-transitions-dark.png">
+  <img alt="The CRF transition matrix at initialisation: 28 of 64 transitions pinned at -10000, blocking the padding row and column, the START column, and the STOP row" src="docs/assets/crf-transitions-light.png">
+</picture>
+
+The tests verify the decoder the strong way rather than by asserting shapes. For
+short sequences and a small tag set, *every* possible labelling can be enumerated
+by brute force, so Viterbi's answer is required to be the argmax over that full
+enumeration, and the forward algorithm's partition function is checked against
+the brute-force log-sum-exp:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/crf-verification-dark.png">
+  <img alt="Two scatter plots against the identity line: Viterbi's path score against the exhaustive best score, and the forward algorithm's log Z against the brute-force log-sum-exp" src="docs/assets/crf-verification-light.png">
+</picture>
+
+Sixty randomly generated CRFs, each solved both ways. Viterbi's path matches the
+exhaustive optimum exactly; the partition function agrees to floating-point
+noise.
 
 ---
 
@@ -149,7 +185,9 @@ within `1e-3`.
 │   └── tagSchemeConverter.py   IOB ↔ BIO ↔ BIOES
 ├── BERT/                       Google's BERT, vendored → BERT/README.md
 ├── sample_data/                Four illustrative sentences → sample_data/README.md
-├── tests/                      175 tests
+├── scripts/make_figures.py     Regenerates every figure in docs/assets/
+├── docs/assets/                Generated figures, light and dark
+├── tests/                      190 tests
 ├── NOTICE                      Provenance and attribution
 └── requirements.txt
 ```
@@ -170,10 +208,10 @@ pip install -r requirements.txt
 python -m pytest
 ```
 
-175 tests, a few seconds. They cover metric and span extraction, tag-scheme
+190 tests, a few seconds. They cover metric and span extraction, tag-scheme
 conversion, the alphabet, the data reader, IntNet's dimensions, the CRF against
-brute force, the BERT alignment reducers, and an end-to-end train-and-decode run
-on the four sentences in `sample_data/`.
+brute force, the BERT alignment reducers, an end-to-end train-and-decode run on
+the four sentences in `sample_data/`, and every number quoted in this README.
 
 ### Training
 
@@ -217,7 +255,14 @@ python utils/tagSchemeConverter.py BIO2BIOES input.txt output.txt
 ```
 
 `IOB2BIO`, `BIO2BIOES`, `BIOES2BIO` and `IOB2BIOES` are all available. BIOES is
-what the shipped config expects.
+what the shipped config expects, and this is why:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/tag-schemes-dark.png">
+  <img alt="The same six tokens tagged in BIOES and in BIO: two adjacent PER entities where BIOES marks each end explicitly, while in BIO only a second B- separates them" src="docs/assets/tag-schemes-light.png">
+</picture>
+
+The BIOES row in that figure is produced by running the converter, not typed out.
 
 ### Optional: BERT features
 
@@ -229,6 +274,24 @@ cd BERT && bash run.sh input.txt output.emb /path/to/bert_base
 **TensorFlow 1.x** release and will not import under TensorFlow 2. They are kept
 for reference; `get_aligned_bert_emb.py`, which collapses word-pieces back to
 tokens (`first`, `mean` or `max`), is pure Python and is tested.
+
+---
+
+## Where the parameters live
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/parameter-budget-dark.png">
+  <img alt="Horizontal bar chart of trainable parameters per component: the main BiLSTM holds 530,432 and SentenceRep 189,616, together 95 percent of 755,501, with IntNet, MemoryBank, the projections and the embeddings far behind" src="docs/assets/parameter-budget-light.png">
+</picture>
+
+Two BiLSTMs account for 95% of the weights — the main one and the entirely
+separate one inside `SentenceRep`, which carries its own `WordRep` and therefore
+its own IntNet. That duplication is deliberate: the sentence representation has
+to exist before the main BiLSTM runs, so it cannot reuse the main pathway's
+features.
+
+The embedding tables are small only because this count uses the sample file's
+vocabulary. With a real corpus they dominate everything else.
 
 ---
 

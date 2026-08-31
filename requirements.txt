@@ -6,6 +6,11 @@ numpy>=1.21
 # Test suite
 pytest>=7.0
 
+# Figure generation (scripts/make_figures.py, which rebuilds docs/assets/).
+# Training and decoding do not need it; the handful of tests that check the
+# figure script skip themselves when it is absent.
+matplotlib>=3.5
+
 # BERT/ only. Those four files are Google's original TensorFlow 1.x release and
 # will not import under TensorFlow 2.x. They are vendored for reference and are
 # not exercised by the test suite; get_aligned_bert_emb.py is pure Python and is
