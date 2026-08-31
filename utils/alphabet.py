@@ -139,11 +139,12 @@ class Alphabet:
             output_directory: Directory to save the JSON file.
             name: Optional custom filename (defaults to alphabet name).
         """
-        saving_name = name if name else self.__name
+        saving_name = name if name else self.name
         try:
-            json.dump(self.get_content(), open(os.path.join(output_directory, saving_name + ".json"), 'w'))
+            with open(os.path.join(output_directory, saving_name + ".json"), 'w') as f:
+                json.dump(self.get_content(), f)
         except Exception as e:
-            print("Exception: Alphabet is not saved: " % repr(e))
+            raise IOError("Alphabet %r could not be saved to %r" % (saving_name, output_directory)) from e
 
     def load(self, input_directory, name=None):
         """
@@ -153,5 +154,5 @@ class Alphabet:
             input_directory: Directory containing the JSON file.
             name: Optional custom filename (defaults to alphabet name).
         """
-        loading_name = name if name else self.__name
+        loading_name = name if name else self.name
         self.from_json(json.load(open(os.path.join(input_directory, loading_name + ".json"))))

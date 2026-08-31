@@ -49,13 +49,9 @@ class SentenceRep(nn.Module):
         # (sentence_level=True in forward to skip label-similarity computation)
         self.wordrep = WordRep(data)
 
-        # Calculate input size: word_emb_dim + character feature dim
-        self.input_size = data.word_emb_dim
-        if self.use_char:
-            kernel_type = data.HP_intNet_kernel_type
-            char_dim = data.HP_char_hidden_dim
-            # IntNet output dimension depends on layer count and kernel types
-            self.input_size += int( (data.HP_intNet_layer - 1) // 2 * char_dim * kernel_type + char_dim * 2 * kernel_type)
+        # Input size is whatever WordRep actually emits: word_emb_dim plus the
+        # IntNet character feature width.
+        self.input_size = self.wordrep.output_dim
        
         # BiLSTM splits hidden dim in half (each direction gets half)
         if self.bilstm_flag:

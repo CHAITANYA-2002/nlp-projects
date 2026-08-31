@@ -1,0 +1,65 @@
+Hierarchical Contextualized Representation for Named Entity Recognition
+=======================================================================
+
+This repository is a study of, and a set of maintenance fixes to, an existing
+research codebase. It is not an independent reimplementation. The model code was
+not written here; what was added is the test suite, the documentation, and the
+corrections listed in README.md under "What changed in this repository".
+
+Provenance
+----------
+
+1. Model, training loop and utilities
+
+   The architecture implements:
+
+       Ying Luo, Fengshun Xiao, Hai Zhao.
+       "Hierarchical Contextualized Representation for Named Entity Recognition."
+       Proceedings of the AAAI Conference on Artificial Intelligence, 2020.
+
+   The surrounding framework is derived from NCRF++, an open-source neural
+   sequence labeling toolkit released under the Apache License 2.0:
+
+       Jie Yang and Yue Zhang.
+       "NCRF++: An Open-source Neural Sequence Labeling Toolkit." ACL 2018.
+       https://github.com/jiesutd/NCRFpp
+
+   The derivation is direct: main.py, utils/data.py, utils/alphabet.py,
+   utils/functions.py, utils/metric.py, utils/tagSchemeConverter.py,
+   model/seqlabel.py, model/wordsequence.py, model/wordrep.py and model/crf.py
+   all originate there, and main.py's own argument parser still describes itself
+   as "Tuning with NCRF++".
+
+   model/IntNet.py, model/SentenceRep.py and model/MemoryBank.py implement the
+   three components the AAAI 2020 paper contributes on top of that framework.
+
+2. BERT/
+
+   BERT/modeling.py, BERT/tokenization.py, BERT/extract_features.py and
+   BERT/__init__.py are Google's original release, unmodified apart from added
+   explanatory docstrings:
+
+       Copyright 2018 The Google AI Language Team Authors
+       https://github.com/google-research/bert
+       Licensed under the Apache License, Version 2.0
+
+   BERT/LICENSE is Google's licence file and applies to those four files.
+
+   BERT/get_aligned_bert_emb.py and BERT/run.sh are not part of Google's release;
+   they align BERT's word-piece output to token boundaries for this model.
+
+3. sample_data/
+
+   The four sentences in sample_data/eng.bioes.train are drawn from CoNLL-2003,
+   which is distributed under its own terms and is not redistributed here. See
+   sample_data/README.md.
+
+Licence
+-------
+
+Apache License 2.0. See LICENSE.
+
+   Copyright 2018 The Google AI Language Team Authors (BERT/)
+   Copyright 2018 Jie Yang (NCRF++ framework)
+   Copyright 2020 Ying Luo, Fengshun Xiao, Hai Zhao (model contributions)
+   Copyright 2024 Chaitanya Khurana (documentation, tests, and fixes)

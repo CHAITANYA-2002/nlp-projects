@@ -63,6 +63,14 @@ def read_instance(input_file, word_alphabet, char_alphabet, feature_alphabets, l
     """
     feature_num = len(feature_alphabets)
     in_lines = open(input_file,'r', encoding="utf8").readlines()
+    # mem_mat and word_mat back the document-level memory bank. Data.generate_instance
+    # threads its own across the train/dev/test files so word indices stay unique;
+    # when called without them, start fresh. mem_mat[0] is the padding slot.
+    if mem_mat is None:
+        mem_mat = [0]
+    if word_mat is None:
+        word_mat = [[] for _ in range(word_alphabet.size())]
+
     instence_texts = []
     instence_Ids = []
     words = []
@@ -152,7 +160,10 @@ def read_instance(input_file, word_alphabet, char_alphabet, feature_alphabets, l
                 word_Ids.append(word_alphabet.get_index(word))
                 label_Ids.append(label_alphabet.get_index(label))
                 mem_mat.append(label_alphabet.get_index(label))
-                word_mat[word_alphabet.get_index(word)].append(word_idx)
+                word_id = word_alphabet.get_index(word)
+                if word_id >= len(word_mat):
+                    word_mat.extend([] for _ in range(word_id + 1 - len(word_mat)))
+                word_mat[word_id].append(word_idx)
                 ## get features
                 feat_list = []
                 feat_Id = []

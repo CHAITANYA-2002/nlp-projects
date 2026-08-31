@@ -20,6 +20,7 @@ See demo.train.config and demo.test.config for examples.
 
 from __future__ import print_function
 from __future__ import absolute_import
+import os
 import sys
 from .alphabet import Alphabet  # Token-index mapping for words, chars, labels
 from .functions import *         # Data reading and embedding utilities
@@ -408,6 +409,9 @@ class Data:
         self.__dict__.update(tmp_dict)
 
     def save(self,save_file):
+        parent = os.path.dirname(save_file)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         f = open(save_file, 'wb')
         pickle.dump(self.__dict__, f, 2)
         f.close()

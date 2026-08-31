@@ -169,7 +169,7 @@ class CRF(nn.Module):
         partition_history = list()
         ##  reverse mask (bug for mask = 1- mask, use this as alternative choice)
         # mask = 1 + (-1)*mask
-        mask =  (1 - mask.long()).byte()
+        mask = (1 - mask.long()).bool()
         _, inivalues = next(seq_iter)  # bat_size * from_target_size * to_target_size
         # only need start from start_tag
         partition = inivalues[:, START_TAG, :].clone().view(batch_size, tag_size)  # bat_size * to_target_size
@@ -234,9 +234,19 @@ class CRF(nn.Module):
 
 
 
-    def forward(self, feats):
-    	path_score, best_path = self._viterbi_decode(feats)
-    	return path_score, best_path
+    def forward(self, feats, mask):
+        """
+        Decode the best label sequence.
+
+        Args:
+            feats: (batch, seq_len, tagset_size+2) - Emission scores.
+            mask: (batch, seq_len) - Binary mask for valid positions.
+
+        Returns:
+            (path_score, best_path) from Viterbi decoding.
+        """
+        path_score, best_path = self._viterbi_decode(feats, mask)
+        return path_score, best_path
 
 
     def _score_sentence(self, scores, mask, tags):
@@ -346,7 +356,7 @@ class CRF(nn.Module):
         partition_history = list()
         ##  reverse mask (bug for mask = 1- mask, use this as alternative choice)
         # mask = 1 + (-1)*mask
-        mask =  (1 - mask.long()).byte()
+        mask = (1 - mask.long()).bool()
         _, inivalues = next(seq_iter)  # bat_size * from_target_size * to_target_size
         # only need start from start_tag
         partition = inivalues[:, START_TAG, :].clone()  # bat_size * to_target_size

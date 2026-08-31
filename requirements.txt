@@ -1,0 +1,14 @@
+# Core model. The original code targeted PyTorch 0.4.1; it is verified here
+# against 2.5.1 (see tests/test_pipeline.py).
+torch>=2.0
+numpy>=1.21
+
+# Test suite
+pytest>=7.0
+
+# BERT/ only. Those four files are Google's original TensorFlow 1.x release and
+# will not import under TensorFlow 2.x. They are vendored for reference and are
+# not exercised by the test suite; get_aligned_bert_emb.py is pure Python and is
+# tested. Install these separately if you want to regenerate BERT features:
+#   tensorflow==1.15
+#   six

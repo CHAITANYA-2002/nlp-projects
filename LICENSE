@@ -186,7 +186,12 @@
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
-   Copyright [2024] [Chaitanya Khurana]
+   Copyright 2018 The Google AI Language Team Authors (BERT/)
+   Copyright 2018 Jie Yang (NCRF++ framework)
+   Copyright 2020 Ying Luo, Fengshun Xiao, Hai Zhao (model contributions)
+   Copyright 2024 Chaitanya Khurana (documentation, tests, and fixes)
+
+   See NOTICE for what each of these covers.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.

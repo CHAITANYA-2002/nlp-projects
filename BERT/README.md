@@ -1,4 +1,4 @@
-# 🔤 BERT Token-Level Embedding Alignment for Sequence Labeling
+# BERT Token-Level Embedding Alignment for Sequence Labeling
 
 A utility for extracting **token-level contextual embeddings from BERT** aligned to original word boundaries, specifically designed for **sequence labeling tasks** such as Named Entity Recognition (NER), Part-of-Speech tagging, and chunking.
 
@@ -8,24 +8,24 @@ This module is part of the [Hierarchical Contextualized Representation for NER](
 
 ## Table of Contents
 
-- [The Subword Alignment Problem](#-the-subword-alignment-problem)
-- [How BERT Tokenization Works](#-how-bert-tokenization-works)
-- [Alignment Strategies](#-alignment-strategies)
-- [Pipeline Architecture](#-pipeline-architecture)
-- [File Reference](#-file-reference)
-- [Prerequisites](#-prerequisites)
-- [Usage](#-usage)
-- [Configuration Deep Dive](#-configuration-deep-dive)
-- [Intermediate JSON Format](#-intermediate-json-format)
-- [Output Format](#-output-format)
-- [Integration with the NER Model](#-integration-with-the-ner-model)
-- [Source Code Reference](#-source-code-reference)
-- [Troubleshooting](#-troubleshooting)
-- [References](#-references)
+- [The Subword Alignment Problem](#the-subword-alignment-problem)
+- [How BERT Tokenization Works](#how-bert-tokenization-works)
+- [Alignment Strategies](#alignment-strategies)
+- [Pipeline Architecture](#pipeline-architecture)
+- [File Reference](#file-reference)
+- [Prerequisites](#prerequisites)
+- [Usage](#usage)
+- [Configuration Deep Dive](#configuration-deep-dive)
+- [Intermediate JSON Format](#intermediate-json-format)
+- [Output Format](#output-format)
+- [Integration with the NER Model](#integration-with-the-ner-model)
+- [Source Code Reference](#source-code-reference)
+- [Troubleshooting](#troubleshooting)
+- [References](#references)
 
 ---
 
-## 🤔 The Subword Alignment Problem
+## The Subword Alignment Problem
 
 ### Why This Tool Exists
 
@@ -48,7 +48,7 @@ This tool extracts BERT's internal representations and **re-aligns** them from s
 
 ---
 
-## 🔠 How BERT Tokenization Works
+## How BERT Tokenization Works
 
 BERT's tokenization is a **two-stage** process implemented in `tokenization.py`:
 
@@ -102,7 +102,7 @@ BERT wraps each input sequence with special boundary tokens:
 
 ---
 
-## 🧩 Alignment Strategies
+## Alignment Strategies
 
 Three strategies are provided in `get_aligned_bert_emb.py` to map subword embeddings back to original word boundaries:
 
@@ -134,14 +134,19 @@ result = (embedding("johan") + embedding("##son")) / 2
 **Implementation detail** (`reduce_mean_list`):
 ```python
 def reduce_mean_list(ls):
-    """Element-wise average of multiple embedding vectors."""
-    if len(ls) == 1:
-        return ls[0]
+    """Element-wise average of several equal-length vectors."""
+    if not ls:
+        raise ValueError("reduce_mean_list needs at least one vector")
+    totals = list(ls[0])
     for item in ls[1:]:
         for index, value in enumerate(item):
-            ls[0][index] += value
-    return [value / len(ls) for value in ls[0]]
+            totals[index] += value
+    return [value / len(ls) for value in totals]
 ```
+
+Both reducers copy before accumulating. They previously summed into `ls[0]`,
+which overwrote the caller's word-piece buffer, so reducing the same pieces twice
+produced two different answers. `tests/test_bert_alignment.py` pins that.
 
 ### `max` — Element-wise Maximum
 
@@ -173,7 +178,7 @@ max         :    0.3     0.4     0.8     0.7     0.6  (max per dim)
 
 ---
 
-## 🏗️ Pipeline Architecture
+## Pipeline Architecture
 
 The embedding extraction is a **two-step pipeline** orchestrated by `run.sh`:
 
@@ -266,7 +271,7 @@ Step 2 — get_aligned_bert_emb.py:
 
 ---
 
-## 📁 File Reference
+## File Reference
 
 ```
 BERT/
@@ -277,12 +282,12 @@ BERT/
 │                           #   Key functions: convert_examples_to_features(), model_fn_builder()
 ├── get_aligned_bert_emb.py # Step 2: Subword → token alignment using first/mean/max
 │                           #   Functions: reduce_mean_list(), reduce_max_list(), main()
-├── modeling.py             # Google BERT Transformer model architecture (unmodified)
+├── modeling.py             # Google BERT Transformer model architecture (unmodified; Apache-2.0 header restored)
 │                           #   Classes: BertConfig, BertModel
 │                           #   Key arch: 12-layer Transformer with multi-head self-attention
 │                           #   Activation: GELU (Gaussian Error Linear Unit)
 │                           #   Normalization: LayerNorm (pre-norm variant)
-├── tokenization.py         # Google BERT tokenizer (unmodified)
+├── tokenization.py         # Google BERT tokenizer (unmodified; Apache-2.0 header restored)
 │                           #   Classes: FullTokenizer, BasicTokenizer, WordpieceTokenizer
 │                           #   Algorithm: Greedy longest-match-first WordPiece
 │                           #   Supports: Unicode, CJK characters, accent stripping
@@ -293,7 +298,7 @@ BERT/
 
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
 ### 1. Python Environment
 
@@ -370,7 +375,7 @@ BRUSSELS 1996-08-22
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ### Quick Start
 
@@ -419,7 +424,7 @@ rm -f $input_file.json
 
 ---
 
-## ⚙️ Configuration Deep Dive
+## Configuration Deep Dive
 
 ### Layer Selection (`layers`)
 
@@ -471,7 +476,7 @@ max_seq_length=512 → maximum capacity, high memory usage
 
 ---
 
-## 📋 Intermediate JSON Format
+## Intermediate JSON Format
 
 Step 1 produces a JSON file (one JSON object per line) with this structure:
 
@@ -511,7 +516,7 @@ Step 1 produces a JSON file (one JSON object per line) with this structure:
 
 ---
 
-## 📥 Output Format
+## Output Format
 
 The final output file has **one line per sentence**, with token embeddings separated by `|||`:
 
@@ -587,7 +592,7 @@ for i, (sent, emb) in enumerate(zip(sentences, embeddings)):
 
 ---
 
-## 🔗 Integration with the NER Model
+## Integration with the NER Model
 
 The BERT embeddings produced by this pipeline can be used as additional input features in the main NER system:
 
@@ -613,7 +618,7 @@ bert_emb_dir=BERT/eng.train.bert
 
 ---
 
-## 📜 Source Code Reference
+## Source Code Reference
 
 ### `extract_features.py` — Key Modifications from Google BERT
 
@@ -677,7 +682,7 @@ The BERT model architecture consists of:
 
 ---
 
-## ⚠️ Troubleshooting
+## Troubleshooting
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
@@ -693,7 +698,7 @@ The BERT model architecture consists of:
 
 ---
 
-## 📊 Model Specifications
+## Model Specifications
 
 | Specification | BERT-Base | BERT-Large |
 |---------------|-----------|------------|
@@ -708,7 +713,7 @@ The BERT model architecture consists of:
 
 ---
 
-## 📚 Example: Complete End-to-End Workflow
+## Example: Complete End-to-End Workflow
 
 ```bash
 # ─── Step 1: Download BERT ───
@@ -747,7 +752,7 @@ python main.py --config demo.train.config
 
 ---
 
-## 🔗 References
+## References
 
 ### Papers
 - **BERT**: Devlin, J., Chang, M., Lee, K., & Toutanova, K. (2019). [BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding](https://arxiv.org/abs/1810.04805). *NAACL-HLT*.
@@ -762,6 +767,6 @@ python main.py --config demo.train.config
 
 ---
 
-## 📄 License
+## License
 
 The BERT source files (`extract_features.py`, `modeling.py`, `tokenization.py`) are from [Google's BERT repository](https://github.com/google-research/bert) and are licensed under the **Apache License 2.0**. See [LICENSE](LICENSE) for details.

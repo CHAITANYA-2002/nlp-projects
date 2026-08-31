@@ -41,19 +41,29 @@ def parse_args(args=None):
 
 
 def reduce_mean_list(ls):
-    """Compute element-wise average of multiple lists (for 'mean' mode)."""
-    if len(ls) == 1:
-        return ls[0]
+    """
+    Element-wise average of several equal-length vectors (the 'mean' mode).
+
+    Returns a new list; the input vectors are left untouched.
+    """
+    if not ls:
+        raise ValueError("reduce_mean_list needs at least one vector")
+    totals = list(ls[0])
     for item in ls[1:]:
         for index, value in enumerate(item):
-            ls[0][index] += value
-    return [value / len(ls) for value in ls[0]]
+            totals[index] += value
+    return [value / len(ls) for value in totals]
+
 
 def reduce_max_list(ls):
-    """Compute element-wise maximum of multiple lists (for 'max' mode)."""
-    if len(ls) == 1:
-        return ls[0]
-    max_ls = ls[0]
+    """
+    Element-wise maximum of several equal-length vectors (the 'max' mode).
+
+    Returns a new list; the input vectors are left untouched.
+    """
+    if not ls:
+        raise ValueError("reduce_max_list needs at least one vector")
+    max_ls = list(ls[0])
     for item in ls[1:]:
         for index, value in enumerate(item):
             if value > max_ls[index]:

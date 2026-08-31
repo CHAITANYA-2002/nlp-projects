@@ -72,6 +72,12 @@ class IntNet(nn.Module):
             # Dense connection: new features are concatenated with all previous features
             last_dim += hidden_size * self.kernel_type 
 
+        # The width of the feature map this network actually produces. Downstream
+        # modules must read this rather than re-deriving it, because the dense
+        # connections make it depend on embedding_dim as well as hidden_size:
+        #     embedding_dim * kernel_type + n_blocks * hidden_size * kernel_type
+        self.output_dim = last_dim
+
         # Move all layers to GPU if available
         if self.gpu:
             self.char_drop = self.char_drop.cuda()
@@ -106,8 +112,25 @@ class IntNet(nn.Module):
         Returns:
             (batch_size, char_hidden_dim) - Fixed-size character feature for each word.
         """
-        batch_size, max_seq = input.size()
+        batch_size = input.size(0)
 
+        # Global max pooling over the character sequence dimension
+        char_cnn_out = self.encode(input)
+        char_cnn_out_max = F.max_pool1d(char_cnn_out, char_cnn_out.size(2))
+
+        return char_cnn_out_max.view(batch_size, -1)
+
+
+    def encode(self, input):
+        """
+        Run the inception stack and return the dense feature map, unpooled.
+
+        Args:
+            input: (batch_size, word_length) - Character index tensor.
+
+        Returns:
+            (batch_size, output_dim, word_length) - Conv1d-ordered feature map.
+        """
         activate_func = F.relu  # ReLU activation for all convolution layers
 
         # Embed characters and transpose for Conv1d: (batch, channels, seq_len)
@@ -135,11 +158,7 @@ class IntNet(nn.Module):
             cnn_feature = torch.cat([cnn_feature, last_cnn_feature], 1)
             last_cnn_feature = cnn_feature
 
-        # Global max pooling over the character sequence dimension
-        char_cnn_out = last_cnn_feature
-        char_cnn_out_max = F.max_pool1d(char_cnn_out, char_cnn_out.size(2))
-
-        return char_cnn_out_max.view(batch_size, -1)
+        return last_cnn_feature
 
     def get_all_hiddens(self, input, seq_lengths):
         """
@@ -150,13 +169,9 @@ class IntNet(nn.Module):
             seq_lengths: (batch_size,) - Character sequence lengths.
             
         Returns:
-            (batch_size, word_length, char_hidden_dim) - Per-position features.
+            (batch_size, word_length, output_dim) - Per-position features.
         """
-        batch_size = input.size(0)
-        char_embeds = self.char_drop(self.char_embeddings(input))
-        char_embeds = char_embeds.transpose(2,1).contiguous()
-        char_cnn_out = self.char_cnn(char_embeds).transpose(2,1).contiguous()
-        return char_cnn_out
+        return self.encode(input).transpose(2,1).contiguous()
 
     def forward(self, input, seq_lengths):
         """Default forward pass returns all hidden states (per-position features)."""

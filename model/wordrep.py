@@ -65,6 +65,13 @@ class WordRep(nn.Module):
 
         # Label embedding layer - embeds each NER label type into the same space as words
         # Used for computing cosine similarity between word and label representations
+        # Width of the tensor forward() returns as word_represent. Downstream
+        # modules size their LSTM against this instead of re-deriving it, since
+        # IntNet's dense connections make its width depend on char_emb_dim too.
+        self.output_dim = self.embedding_dim
+        if self.use_char:
+            self.output_dim += self.char_feature.output_dim
+
         self.label_embedding_dim = data.word_emb_dim
         self.label_alphabet_size = data.label_alphabet.size()
         self.label_embedding = nn.Embedding(self.label_alphabet_size, self.label_embedding_dim)

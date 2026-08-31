@@ -272,7 +272,7 @@ def batchify_sequence_labeling_with_label(input_batch_list, gpu, if_train=True):
     feature_seq_tensors = []
     for idx in range(feature_num):
         feature_seq_tensors.append(torch.zeros((batch_size, max_seq_len),requires_grad =  if_train).long())
-    mask = torch.zeros((batch_size, max_seq_len), requires_grad =  if_train).byte()
+    mask = torch.zeros((batch_size, max_seq_len), requires_grad=if_train).bool()
     for idx, (seq, label, word_idx, seqlen) in enumerate(zip(words, labels, word_idxs, word_seq_lengths)):
         seqlen = seqlen.item()
         word_seq_tensor[idx, :seqlen] = torch.LongTensor(seq)
@@ -354,7 +354,7 @@ def batchify_sentence_classification_with_label(input_batch_list, gpu, if_train=
     feature_seq_tensors = []
     for idx in range(feature_num):
         feature_seq_tensors.append(torch.zeros((batch_size, max_seq_len),requires_grad =  if_train).long())
-    mask = torch.zeros((batch_size, max_seq_len), requires_grad =  if_train).byte()
+    mask = torch.zeros((batch_size, max_seq_len), requires_grad=if_train).bool()
     label_seq_tensor = torch.LongTensor(labels)
     # exit(0)
     for idx, (seq,  seqlen) in enumerate(zip(words,  word_seq_lengths)):
@@ -557,7 +557,10 @@ def load_model_test(data, name):
     """
     print("Load Model from file: ", data.dset_dir)
     model = SeqLabel(data)
-    model.load_state_dict(torch.load(data.load_model_dir))
+    # map_location lets a GPU-trained checkpoint load on a CPU-only machine;
+    # weights_only=True refuses to unpickle anything but plain tensors.
+    map_location = torch.device("cuda" if data.HP_gpu else "cpu")
+    model.load_state_dict(torch.load(data.load_model_dir, map_location=map_location, weights_only=True))
 
     start_time = time.time()
     speed, acc, p, r, f, pred_results, pred_scores = evaluate(data, model, name)

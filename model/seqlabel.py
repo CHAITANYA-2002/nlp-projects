@@ -47,10 +47,14 @@ class SeqLabel(nn.Module):
         print("build sequence labeling network...")
         self.average_batch = data.average_batch_loss 
 
-        # Save original label size for CRF, then add 2 for START_TAG and STOP_TAG
-        # (used internally by the BiLSTM output layer)
-        label_size = data.label_alphabet_size
-        data.label_alphabet_size += 2
+        # The BiLSTM output layer emits one score per label plus START_TAG and
+        # STOP_TAG; the CRF is sized on the labels alone. WordSequence reads the
+        # widened value off `data`, so it is derived from the alphabet and
+        # assigned rather than incremented -- an increment would widen the model
+        # by two more tags every time a second SeqLabel was built from the same
+        # Data, and the two would then refuse to share a checkpoint.
+        label_size = data.label_alphabet.size()
+        data.label_alphabet_size = label_size + 2
 
         # Build the hierarchical word sequence feature extractor
         self.word_hidden = WordSequence(data)

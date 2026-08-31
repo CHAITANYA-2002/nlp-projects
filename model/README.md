@@ -1,4 +1,4 @@
-# 🧠 Model Architecture — Hierarchical Contextualized NER
+# Model Architecture — Hierarchical Contextualized NER
 
 This directory contains the **neural network model components** for the Hierarchical Contextualized Representation for Named Entity Recognition system. The model implements a four-level hierarchical feature extraction pipeline followed by structured sequence decoding.
 
@@ -6,23 +6,23 @@ This directory contains the **neural network model components** for the Hierarch
 
 ## Table of Contents
 
-- [Architecture Overview](#-architecture-overview)
-- [Module Dependency Graph](#-module-dependency-graph)
-- [File Reference](#-file-reference)
-- [SeqLabel — Top-Level Model](#-seqlabel--top-level-model)
-- [WordSequence — Hierarchical Feature Extractor](#-wordsequence--hierarchical-feature-extractor)
-- [WordRep — Word Representation](#-wordrep--word-representation)
-- [IntNet — Character-Level CNN](#-intnet--character-level-inception-cnn)
-- [SentenceRep — Sentence-Level Features](#-sentencerep--sentence-level-feature-extractor)
-- [MemoryBank — Document-Level Context](#-memorybank--document-level-memory-network)
-- [CRF — Structured Sequence Decoding](#-crf--conditional-random-field)
-- [Data Flow](#-data-flow)
-- [Tensor Shapes Reference](#-tensor-shapes-reference)
-- [Hyperparameter Impact](#-hyperparameter-impact)
+- [Architecture Overview](#architecture-overview)
+- [Module Dependency Graph](#module-dependency-graph)
+- [File Reference](#file-reference)
+- [SeqLabel — Top-Level Model](#seqlabel--top-level-model)
+- [WordSequence — Hierarchical Feature Extractor](#wordsequence--hierarchical-feature-extractor)
+- [WordRep — Word Representation](#wordrep--word-representation)
+- [IntNet — Character-Level CNN](#intnet--character-level-inception-cnn)
+- [SentenceRep — Sentence-Level Features](#sentencerep--sentence-level-feature-extractor)
+- [MemoryBank — Document-Level Context](#memorybank--document-level-memory-network)
+- [CRF — Structured Sequence Decoding](#crf--conditional-random-field)
+- [Data Flow](#data-flow)
+- [Tensor Shapes Reference](#tensor-shapes-reference)
+- [Hyperparameter Impact](#hyperparameter-impact)
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 The model builds representations at **four hierarchical levels**, each capturing context at a different granularity:
 
@@ -66,7 +66,7 @@ Level 1: Word        ┌──────────────────�
 
 ---
 
-## 🔗 Module Dependency Graph
+## Module Dependency Graph
 
 ```
 seqlabel.py (SeqLabel)
@@ -84,7 +84,7 @@ seqlabel.py (SeqLabel)
 
 ---
 
-## 📁 File Reference
+## File Reference
 
 | File | Class | Lines | Purpose |
 |------|-------|-------|---------|
@@ -99,7 +99,7 @@ seqlabel.py (SeqLabel)
 
 ---
 
-## 🏷️ SeqLabel — Top-Level Model
+## SeqLabel — Top-Level Model
 
 **File**: `seqlabel.py` | **Class**: `SeqLabel(nn.Module)`
 
@@ -112,7 +112,9 @@ The entry point for the entire model. Orchestrates the feature extraction pipeli
 
 ### Key Design Decision
 
-The `label_alphabet_size` is incremented by **+2** before building `WordSequence`. This reserves two additional tag indices for the CRF's internal `START_TAG` and `STOP_TAG` markers, which are never predicted but are essential for the CRF's transition matrix boundary conditions.
+`data.label_alphabet_size` is set to `label_alphabet.size() + 2` before building `WordSequence`. The two extra indices are the CRF's internal `START_TAG` and `STOP_TAG`, which are never predicted but anchor the transition matrix's boundary conditions. The CRF itself is built with the unwidened size.
+
+It is an assignment derived from the alphabet rather than an increment: an increment would widen the model by two more tags each time a second `SeqLabel` was built from the same `Data`, and the two models would then refuse to share a checkpoint.
 
 ### API
 
@@ -143,7 +145,7 @@ tag_seq = model(word_inputs, word_seq_lengths, char_inputs,
 
 ---
 
-## ⚡ WordSequence — Hierarchical Feature Extractor
+## WordSequence — Hierarchical Feature Extractor
 
 **File**: `wordsequence.py` | **Class**: `WordSequence(nn.Module)`
 
@@ -207,7 +209,7 @@ This allows the model to leverage document-level repetition patterns — if the 
 
 ---
 
-## 📝 WordRep — Word Representation
+## WordRep — Word Representation
 
 **File**: `wordrep.py` | **Class**: `WordRep(nn.Module)`
 
@@ -242,7 +244,7 @@ orig_word_embs  # (batch, sent_len, word_emb_dim) — raw word embeddings for me
 
 ---
 
-## 🔡 IntNet — Character-Level Inception CNN
+## IntNet — Character-Level Inception CNN
 
 **File**: `IntNet.py` | **Class**: `IntNet(nn.Module)`
 
@@ -293,17 +295,27 @@ Input: Character embeddings (batch, char_emb_dim, word_length)
 
 ### Output Dimension Calculation
 
+The dense connections carry the two initial embedding-width convolutions through
+to the end, so the embedding dimension appears in the total alongside the hidden
+size:
+
 ```
-output_dim = (intNet_layer - 1) / 2 × char_hidden_dim × kernel_type
-           + char_emb_dim × 2 × kernel_type
-         = (7 - 1) / 2 × 16 × 2 + 32 × 2 × 2
-         = 3 × 32 + 128
-         = 224
+output_dim = char_emb_dim × kernel_type
+           + n_blocks × char_hidden_dim × kernel_type      where n_blocks = (intNet_layer - 1) // 2
+
+         = 32 × 2 + 3 × 16 × 2
+         = 64 + 96
+         = 160
 ```
+
+Read this off `IntNet.output_dim` rather than recomputing it. `WordRep.output_dim`
+adds `word_emb_dim` on top, and `SentenceRep` and `WordSequence` size their LSTM
+inputs from that. `tests/test_intnet.py` checks the declared width against the
+tensor the module actually produces across seven configurations.
 
 ---
 
-## 🌐 SentenceRep — Sentence-Level Feature Extractor
+## SentenceRep — Sentence-Level Feature Extractor
 
 **File**: `SentenceRep.py` | **Class**: `SentenceRep(nn.Module)`
 
@@ -338,7 +350,7 @@ SentenceRep provides sentence features → using its own WordRep (without LS)
 
 ---
 
-## 🗄️ MemoryBank — Document-Level Memory Network
+## MemoryBank — Document-Level Memory Network
 
 **File**: `MemoryBank.py` | **Class**: `MemoryBank(nn.Module)`
 
@@ -387,7 +399,7 @@ doc_context = sum(weights * stored_hidden_states)               # weighted sum o
 
 ---
 
-## 🔗 CRF — Conditional Random Field
+## CRF — Conditional Random Field
 
 **File**: `crf.py` | **Class**: `CRF(nn.Module)`
 
@@ -466,7 +478,7 @@ Where `y*` is the gold (correct) label sequence.
 
 ---
 
-## 📊 Data Flow
+## Data Flow
 
 ### Training Flow
 
@@ -519,7 +531,7 @@ Input sentence: "EU rejects German call"
 
 ---
 
-## 📐 Tensor Shapes Reference
+## Tensor Shapes Reference
 
 | Tensor | Shape | Description |
 |--------|-------|-------------|
@@ -540,7 +552,7 @@ Input sentence: "EU rejects German call"
 
 ---
 
-## ⚙️ Hyperparameter Impact
+## Hyperparameter Impact
 
 | Hyperparameter | Config Key | Default | Affects | Impact |
 |----------------|-----------|---------|---------|--------|
@@ -559,7 +571,7 @@ Input sentence: "EU rejects German call"
 
 ---
 
-## 🔬 Implementation Notes
+## Implementation Notes
 
 ### Why Two WordRep Instances?
 

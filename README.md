@@ -1,249 +1,337 @@
-# 🧠 Hierarchical Contextualized Representation for Named Entity Recognition
+# Hierarchical Contextualized NER
 
-Implementation of the paper **"Hierarchical Contextualized Representation for Named Entity Recognition"** (AAAI 2020).
+A four-level neural architecture for **named entity recognition** — characters,
+words, sentences, and whole documents — implementing Luo, Xiao and Zhao's
+*Hierarchical Contextualized Representation for Named Entity Recognition*
+(AAAI 2020) on top of the NCRF++ sequence-labeling framework.
 
-This model introduces a **hierarchical contextualized representation** framework that captures character-level, word-level, sentence-level, and document-level features for Named Entity Recognition (NER). It achieves state-of-the-art results on standard NER benchmarks by integrating:
-
-1. **IntNet** — An inception-style multi-scale character-level CNN
-2. **Label-attention sentence representation** — Cosine similarity between word embeddings and label embeddings for global sentence context
-3. **Memory Bank** — A document-level memory network that stores and retrieves representations of previously seen words
-4. **BiLSTM-CRF** — Bidirectional LSTM with Conditional Random Field for sequence labeling
-
----
-
-## 📐 Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        SeqLabel (Top-level Model)                  │
-│        ┌─────────────────────────┐   ┌──────────────────┐          │
-│        │     WordSequence        │   │       CRF        │          │
-│        │  ┌──────────────────┐   │   │  (Viterbi decode │          │
-│        │  │    WordRep       │   │   │   + NLL loss)    │          │
-│        │  │  ┌─────────┐    │   │   └──────────────────┘          │
-│        │  │  │ IntNet  │    │   │                                  │
-│        │  │  │(CharCNN)│    │   │                                  │
-│        │  │  └─────────┘    │   │                                  │
-│        │  │  Word Embeddings│   │                                  │
-│        │  │  Label Embeddings│  │                                  │
-│        │  └──────────────────┘   │                                  │
-│        │  ┌──────────────────┐   │                                  │
-│        │  │  SentenceRep     │   │                                  │
-│        │  │(Global BiLSTM/CNN)│  │                                  │
-│        │  └──────────────────┘   │                                  │
-│        │  ┌──────────────────┐   │                                  │
-│        │  │   MemoryBank     │   │                                  │
-│        │  │ (Document-level) │   │                                  │
-│        │  └──────────────────┘   │                                  │
-│        │  BiLSTM Feature Extract │                                  │
-│        └─────────────────────────┘                                  │
-└─────────────────────────────────────────────────────────────────────┘
-```
+> **What this repository is.** It is a study of an existing research codebase,
+> not an independent reimplementation. The model code is derived from published
+> work by other authors; see [NOTICE](NOTICE) for the full provenance. What was
+> added here is a **175-test suite**, corrected documentation, and the fixes
+> listed under [What changed](#what-changed) — including six defects that
+> stopped the code running at all on a current PyTorch.
 
 ---
 
-## 📁 Project Structure
+## The idea in one picture
+
+Most NER models stop at the sentence. This one keeps widening the context: the
+same word is described four times over, at four different scales, and the four
+descriptions are concatenated before the tagger ever sees them.
+
+```mermaid
+flowchart TD
+    subgraph L1["Level 1 · Characters"]
+        C["c-h-a-r-s"] --> IN["IntNet<br/>inception CNN, kernels 3 and 5"]
+    end
+    subgraph L2["Level 2 · Word"]
+        W["word id"] --> WE["Word embedding<br/>GloVe"]
+    end
+    subgraph L3["Level 3 · Sentence"]
+        SR["SentenceRep<br/>separate BiLSTM"]
+        LS["Label attention<br/>cosine word vs label"]
+    end
+    subgraph L4["Level 4 · Document"]
+        MB["MemoryBank<br/>every earlier mention of this word"]
+    end
+
+    IN --> CAT["concatenate"]
+    WE --> CAT
+    CAT --> SR
+    SR --> MAIN["Main BiLSTM"]
+    LS --> SR
+    CAT --> MAIN
+    MAIN --> MB
+    MB -->|"(1-α)·word + α·document"| CRF["CRF<br/>Viterbi decode"]
+    CRF --> OUT["B-PER  E-PER  O  S-LOC"]
+```
+
+Each level answers a question the level below cannot:
+
+| Level | Module | Question it answers |
+|---|---|---|
+| Characters | `IntNet` | Does this token *look* like a name? Capitalisation, suffixes, shape — this is what generalises to words never seen in training. |
+| Word | `WordRep` | What does this token usually mean? |
+| Sentence | `SentenceRep` + label attention | What is this sentence about, and which labels does its vocabulary lean toward? |
+| Document | `MemoryBank` | How was this same word tagged earlier in the document? A token ambiguous in isolation is often unambiguous on its second mention. |
+| Decoding | `CRF` | Which *sequence* of labels is jointly best? `B-PER` cannot be followed by `S-LOC`; the CRF learns those constraints instead of tagging each token independently. |
+
+---
+
+## Why each piece exists
+
+### IntNet — reading the shape of a word
+
+A single convolution width sees one size of pattern. IntNet runs kernels of
+width 3 and 5 side by side and stacks the result with **dense connections**, so
+every block sees every earlier block's output:
+
+```mermaid
+flowchart LR
+    E["char embeddings<br/>32-dim"] --> K3["Conv 3"]
+    E --> K5["Conv 5"]
+    K3 --> CC["concat<br/>64"]
+    K5 --> CC
+    CC --> B1["block 1<br/>1×1 bottleneck → conv 3 ∥ conv 5"]
+    B1 --> CC2["concat with everything so far<br/>96"]
+    CC2 --> B2["block 2"]
+    B2 --> CC3["concat<br/>128"]
+    CC3 --> B3["block 3"]
+    B3 --> CC4["concat<br/>160"]
+    CC4 --> MP["max-pool over the word"]
+    MP --> OUT["160-dim character feature"]
+```
+
+That last width is the one thing about IntNet worth remembering, because it is
+not `char_hidden_dim`:
 
 ```
-NLP/
-├── main.py                     # Entry point: training, evaluation, and testing pipeline
-├── demo.train.config           # Training configuration (I/O, network, hyperparameters)
-├── demo.test.config            # Testing configuration (loads saved model & dataset)
-├── model/                      # Neural network model components
-│   ├── __init__.py             # Package marker
-│   ├── seqlabel.py             # SeqLabel: top-level sequence labeling model (loss + decode)
-│   ├── wordsequence.py         # WordSequence: main feature extractor combining all levels
-│   ├── wordrep.py              # WordRep: word + char + label embedding representations
-│   ├── IntNet.py               # IntNet: inception-style multi-scale character CNN
-│   ├── SentenceRep.py          # SentenceRep: sentence-level global feature extractor
-│   ├── MemoryBank.py           # MemoryBank: document-level memory network
-│   └── crf.py                  # CRF: Conditional Random Field (forward, Viterbi, n-best)
-├── utils/                      # Utility modules for data processing and evaluation
-│   ├── __init__.py             # Package marker
-│   ├── data.py                 # Data: config parsing, alphabet building, instance generation
-│   ├── alphabet.py             # Alphabet: bidirectional mapping between tokens and indices
-│   ├── functions.py            # Helper functions: data reading, pretrained embeddings
-│   ├── metric.py               # NER evaluation metrics (precision, recall, F1-score)
-│   └── tagSchemeConverter.py   # Tag scheme converter: IOB ↔ BIO ↔ BIOES
-├── BERT/                       # BERT embedding generation tools
-│   ├── __init__.py             # Google BERT license header
-│   ├── get_aligned_bert_emb.py # Aligns BERT subword embeddings to token-level
-│   ├── extract_features.py     # Google BERT feature extraction (unmodified)
-│   ├── modeling.py             # Google BERT model architecture (unmodified)
-│   ├── tokenization.py         # Google BERT tokenizer (unmodified)
-│   └── run.sh                  # Shell script for running BERT extraction pipeline
-├── sample_data/                # Sample training data
-│   └── eng.bioes.train         # Example CoNLL format NER data (BIOES tag scheme)
-├── LICENSE                     # Apache 2.0 License
-└── README.md                   # This file
+output_dim = char_emb_dim × kernel_type + n_blocks × char_hidden_dim × kernel_type
+           = 32 × 2 + 3 × 16 × 2
+           = 160
+```
+
+The dense connections carry the initial embedding-width convolutions all the way
+to the output, so `char_emb_dim` appears in the total. Downstream modules read
+`IntNet.output_dim` instead of re-deriving it — see
+[What changed](#what-changed), where re-deriving it was a real bug.
+
+### MemoryBank — the document-level trick
+
+The bank holds one slot per word *type*. After each epoch, every word the model
+tagged **correctly** writes its hidden state into its slot. On the next pass, a
+word retrieves the states of its own earlier occurrences, attends over them, and
+mixes the result back in:
+
+```
+output = (1 − α) · word_representation + α · document_representation      α = 0.3
+```
+
+The retrieval is masked so a word can only attend to *other* occurrences, never
+to itself at the current position.
+
+### CRF — tagging the sequence, not the tokens
+
+Per-token softmax will happily emit `B-PER` followed by `S-LOC`. The CRF scores
+whole sequences using a learned transition matrix and picks the best one by
+Viterbi. Transitions into `START`, out of `STOP`, and anything touching the
+padding index are pinned at `-10000`, so those paths are unreachable.
+
+The tests verify this the strong way. For short sequences and a small tag set,
+every possible labelling is enumerated by brute force, and Viterbi's answer is
+required to be the argmax over that full enumeration — with the forward
+algorithm's partition function checked against the brute-force log-sum-exp to
+within `1e-3`.
+
+---
+
+## Repository layout
+
+```
+.
+├── main.py                     Training, evaluation and decoding pipeline
+├── demo.train.config           Training configuration
+├── demo.test.config            Decoding configuration
+├── model/                      The network      → model/README.md
+│   ├── seqlabel.py             Top-level model: loss and decode
+│   ├── wordsequence.py         Combines the four levels
+│   ├── wordrep.py              Word + char + label-similarity features
+│   ├── IntNet.py               Inception character CNN
+│   ├── SentenceRep.py          Sentence-level extractor
+│   ├── MemoryBank.py           Document-level memory
+│   └── crf.py                  CRF: forward, Viterbi, n-best
+├── utils/                      Data and metrics  → utils/README.md
+│   ├── data.py                 Config parsing, alphabets, instances
+│   ├── alphabet.py             Token ↔ index mapping
+│   ├── functions.py            CoNLL reading, pretrained embeddings
+│   ├── metric.py               Entity-level precision, recall, F1
+│   └── tagSchemeConverter.py   IOB ↔ BIO ↔ BIOES
+├── BERT/                       Google's BERT, vendored → BERT/README.md
+├── sample_data/                Four illustrative sentences → sample_data/README.md
+├── tests/                      175 tests
+├── NOTICE                      Provenance and attribution
+└── requirements.txt
 ```
 
 ---
 
-## 🛠️ Requirements
+## Running it
 
-- **Python** 3.6 or higher
-- **PyTorch** 0.4.1 or higher
-- **NumPy**
+Verified on **Python 3.11.9** with **PyTorch 2.5.1** and **NumPy 1.25.2**.
 
----
-
-## 🚀 Getting Started
-
-### 1. Prepare Data
-
-Place your NER data in `sample_data/` using **CoNLL format** (space-separated, one token per line, empty line between sentences):
-
-```
-EU      S-ORG
-reject  O
-German  S-MISC
-call    O
-.       O
-
-Peter      B-PER
-Blackburn  E-PER
+```bash
+pip install -r requirements.txt
 ```
 
-Supported tag schemes: **BIOES** (recommended) and **BIO**.
+### The tests need no data and no download
 
-### 2. Prepare Embeddings
+```bash
+python -m pytest
+```
 
-- **Word embeddings**: GloVe or similar (e.g., `sample_data/eng.glove`)
-- **Label embeddings**: Pre-trained label embeddings (e.g., `sample_data/eng.label`)
-- **BERT embeddings** (optional): Use the `BERT/` tools to generate aligned embeddings
+175 tests, a few seconds. They cover metric and span extraction, tag-scheme
+conversion, the alphabet, the data reader, IntNet's dimensions, the CRF against
+brute force, the BERT alignment reducers, and an end-to-end train-and-decode run
+on the four sentences in `sample_data/`.
 
-### 3. Configure
+### Training
 
-Edit `demo.train.config` to set:
-- **I/O paths**: training/dev/test data, model save directory, embedding files
-- **Network settings**: CRF, character features (IntNet), word feature extractor (LSTM)
-- **Hyperparameters**: learning rate, dropout, hidden dimensions, etc.
-
-### 4. Train
+Training needs the real corpus, which is not in this repository — see
+[sample_data/README.md](sample_data/README.md).
 
 ```bash
 python main.py --config demo.train.config
 ```
 
-The model will:
-- Build word/char/label alphabets from training data
-- Load pretrained embeddings
-- Train for the configured number of epochs
-- Evaluate on dev/test sets after each epoch
-- Save the best model based on dev F1-score
+```mermaid
+flowchart LR
+    A["build alphabets<br/>from train + dev + test"] --> B["load GloVe and<br/>label embeddings"]
+    B --> C["train one epoch"]
+    C --> D["evaluate on dev"]
+    D -->|"best F1 so far"| E["save checkpoint"]
+    D --> F["update memory bank<br/>with correct predictions"]
+    F --> C
+    E --> G["evaluate on test"]
+```
 
-### 5. Test
+Checkpoints land at `<model_dir>.<epoch>.model` alongside `<model_dir>.dset`,
+which pickles the alphabets and settings. Both are needed to decode later.
+
+### Decoding with a trained model
 
 ```bash
 python main.py --config demo.test.config
 ```
 
----
+A checkpoint was published alongside the earlier version of this repository:
+[lstmcrf.model](https://drive.google.com/drive/folders/1G3kN1WsPJDVk9FdVUtIdv7DXd55p3yv0?usp=sharing).
+Which configuration produced it, and what it scores, are not recorded anywhere in
+this repository, so neither is claimed here. It also predates the fixes below, so
+its `.dset` companion may not load against the current code.
 
-## ⚙️ Configuration Reference
-
-### I/O Settings
-
-| Parameter       | Description                           | Example                          |
-|----------------|---------------------------------------|----------------------------------|
-| `train_dir`    | Training data file path               | `sample_data/eng.bioes.train`    |
-| `dev_dir`      | Development data file path            | `sample_data/eng.bioes.dev`      |
-| `test_dir`     | Test data file path                   | `sample_data/eng.bioes.test`     |
-| `model_dir`    | Model save directory prefix           | `result/lstmcrf`                 |
-| `word_emb_dir` | Pretrained word embeddings file       | `sample_data/eng.glove`          |
-| `label_emb_dir`| Pretrained label embeddings file      | `sample_data/eng.label`          |
-
-### Network Configuration
-
-| Parameter                  | Description                              | Default  |
-|---------------------------|------------------------------------------|----------|
-| `use_crf`                 | Use CRF layer for sequence decoding      | `True`   |
-| `use_char`                | Use character-level features             | `True`   |
-| `word_seq_feature`        | Word-level feature extractor             | `LSTM`   |
-| `global_feature_extractor`| Sentence-level feature extractor         | `LSTM`   |
-| `char_seq_feature`        | Character-level feature extractor        | `IntNet` |
-
-### Hyperparameters
-
-| Parameter          | Description                            | Default  |
-|-------------------|----------------------------------------|----------|
-| `hidden_dim`      | BiLSTM hidden dimension                | `256`    |
-| `global_hidden_dim`| Sentence-level hidden dimension       | `128`    |
-| `char_hidden_dim` | Character feature hidden dimension     | `16`     |
-| `intNet_layer`    | Number of IntNet CNN layers            | `7`      |
-| `intNet_kernel_type`| IntNet kernel types (3 and 5)        | `2`      |
-| `dropout`         | General dropout rate                   | `0.5`    |
-| `rnn_dropout`     | RNN output dropout rate                | `0.5`    |
-| `mem_bank_alpha`  | Memory bank interpolation weight       | `0.3`    |
-| `learning_rate`   | Initial learning rate                  | `0.015`  |
-| `lr_decay`        | Learning rate decay factor             | `0.05`   |
-| `batch_size`      | Training batch size                    | `10`     |
-| `iteration`       | Number of training epochs              | `70`     |
-| `optimizer`       | Optimization algorithm                 | `SGD`    |
-
----
-
-## 🔧 BERT Embeddings (Optional)
-
-To generate BERT embeddings aligned to token boundaries:
+### Converting tag schemes
 
 ```bash
-cd BERT/
-bash run.sh
+python utils/tagSchemeConverter.py BIO2BIOES input.txt output.txt
 ```
 
-This runs Google's BERT `extract_features.py` and then `get_aligned_bert_emb.py` to produce token-level embeddings from BERT's subword tokenization. Three alignment modes are supported:
+`IOB2BIO`, `BIO2BIOES`, `BIOES2BIO` and `IOB2BIOES` are all available. BIOES is
+what the shipped config expects.
 
-| Mode    | Description                                          |
-|---------|------------------------------------------------------|
-| `first` | Use the embedding of the first subword piece         |
-| `mean`  | Average all subword piece embeddings                 |
-| `max`   | Element-wise maximum across subword piece embeddings |
-
----
-
-## 📊 Evaluation
-
-The model evaluates using standard NER metrics:
-- **Accuracy** — Token-level prediction accuracy
-- **Precision** — Fraction of predicted entities that are correct
-- **Recall** — Fraction of gold entities that are predicted
-- **F1-Score** — Harmonic mean of precision and recall
-
-Evaluation supports both **BIO** and **BIOES** tag schemes with proper entity span matching.
-
----
-
-## 🏗️ Tag Scheme Conversion
-
-The `utils/tagSchemeConverter.py` utility converts between NER tag schemes:
+### Optional: BERT features
 
 ```bash
-# IOB to BIO
-python utils/tagSchemeConverter.py IOB2BIO input_file output_file
-
-# BIO to BIOES
-python utils/tagSchemeConverter.py BIO2BIOES input_file output_file
-
-# BIOES to BIO
-python utils/tagSchemeConverter.py BIOES2BIO input_file output_file
-
-# IOB to BIOES (two-step)
-python utils/tagSchemeConverter.py IOB2BIOES input_file output_file
+cd BERT && bash run.sh input.txt output.emb /path/to/bert_base
 ```
 
+`extract_features.py`, `modeling.py` and `tokenization.py` are Google's
+**TensorFlow 1.x** release and will not import under TensorFlow 2. They are kept
+for reference; `get_aligned_bert_emb.py`, which collapses word-pieces back to
+tokens (`first`, `mean` or `max`), is pure Python and is tested.
+
 ---
 
-## 🔗 Pre-trained Models
+## Configuration
 
-A pre-trained model is available: [lstmcrf.model](https://drive.google.com/drive/folders/1G3kN1WsPJDVk9FdVUtIdv7DXd55p3yv0?usp=sharing)
+Full tables live in the per-directory READMEs; these are the settings that
+actually change behaviour.
+
+| Parameter | Default | What it does |
+|---|---|---|
+| `word_emb_dim` | 100 | Word embedding width; must match the GloVe file |
+| `char_emb_dim` | 32 | Character embedding width — also widens IntNet's output |
+| `char_hidden_dim` | 16 | IntNet block width |
+| `intNet_layer` | 7 | `(7-1)//2 = 3` inception blocks |
+| `hidden_dim` | 256 | Main BiLSTM, split across both directions |
+| `global_hidden_dim` | 128 | Sentence-level BiLSTM |
+| `mem_bank_alpha` | 0.3 | Weight on the document-level representation |
+| `use_crf` | True | CRF decoding rather than per-token softmax |
+| `learning_rate` / `lr_decay` | 0.015 / 0.05 | SGD, decayed as `lr / (1 + decay × epoch)` |
+| `iteration` | 70 | Epochs |
+
+Both config files are commented line by line.
 
 ---
 
-## 📝 Citation
+## What changed
 
-If you use this code, please cite:
+Six defects were found and fixed. Each has a test that fails without the fix.
+
+| # | Where | What was wrong |
+|---|---|---|
+| 1 | `main.py`, `model/crf.py` | Masks were built as `ByteTensor`. `masked_select` has required `BoolTensor` since PyTorch 1.2, so **every training run died** at the first document-level step with `masked_select: expected BoolTensor for mask`. |
+| 2 | `model/SentenceRep.py`, `model/wordsequence.py` | Both re-derived IntNet's output width with `char_hidden_dim × 2 × kernel_type` where the code produces `char_emb_dim × kernel_type`. The two agree only when `char_emb_dim == 2 × char_hidden_dim`. The shipped config happens to satisfy that; any other ratio crashed with an opaque matmul error several layers away. Both now read `IntNet.output_dim`. |
+| 3 | `model/IntNet.py` | `get_all_hiddens`, and therefore `forward`, called `self.char_cnn` — an attribute never created. Any use of the module as a plain `nn.Module` raised `AttributeError`. The inception stack is now shared between the pooled and per-position accessors. |
+| 4 | `model/crf.py` | `CRF.forward` passed one argument to `_viterbi_decode`, which takes two. |
+| 5 | `utils/alphabet.py` | `save` and `load` referenced `self.__name`, name-mangled to an attribute that does not exist, so **both raised unconditionally**. `save` also swallowed every exception behind a malformed message. |
+| 6 | `model/seqlabel.py` | The constructor did `data.label_alphabet_size += 2`, mutating shared state. Building a second model from the same `Data` produced one two tags wider, and the two could not share a checkpoint. Now derived from the alphabet and assigned. |
+
+Smaller corrections, same rule — each is pinned by a test:
+
+- `utils/data.py` — `save` did not create its parent directory, so a fresh clone
+  crashed with `FileNotFoundError: 'result/lstmcrf.dset'` at the end of the first
+  epoch, after all of that epoch's work.
+- `utils/functions.py` — `read_instance`'s `word_mat` and `mem_mat` defaulted to
+  `None` while the body appended to both unconditionally.
+- `utils/tagSchemeConverter.py` — sentences were flushed only on a blank line, so
+  all four converters **silently dropped the last sentence** of a file that did
+  not end with one.
+- `BERT/get_aligned_bert_emb.py` — both reducers accumulated into their first
+  argument, corrupting the caller's word-piece buffer; calling either twice on
+  the same input gave different answers.
+- `main.py` — `torch.load` now passes `map_location` and `weights_only=True`, so
+  a GPU-trained checkpoint loads on a CPU-only machine.
+
+Attribution, restored:
+
+- `BERT/modeling.py`, `BERT/tokenization.py` and `BERT/extract_features.py` had
+  their `Copyright 2018 The Google AI Language Team Authors` headers stripped in
+  an earlier commit. Apache 2.0 section 4 requires them to be retained; they are
+  back, verbatim.
+- `BERT/LICENSE` had been rewritten to claim copyright over Google's code. It
+  now carries Google's notice again.
+- [NOTICE](NOTICE) records the full chain — NCRF++, the AAAI 2020 paper, Google
+  BERT, CoNLL-2003 — and the root `LICENSE` lists every copyright holder.
+
+Nothing in the model's numerical behaviour changed. On the shipped configuration
+the training loss after each epoch is identical, to the last decimal place, to
+what it was before any of this: `24.942479610443115` then `24.315837860107422`.
+
+---
+
+## What is not claimed here
+
+Following the same rule as the rest of this portfolio — never state a number the
+tests do not pin:
+
+- **No benchmark scores are reported.** The paper reports state-of-the-art F1 on
+  CoNLL-2003 and OntoNotes. This repository has never been run on either: the
+  corpora are licensed and absent, as are the GloVe and label embedding files.
+  Quoting the paper's numbers as though they came from this code would be
+  fabrication.
+- The four sentences in `sample_data/` are enough to prove the pipeline runs.
+  They are far too few to train anything, and the F1 values a smoke run prints
+  are meaningless.
+- `_viterbi_decode` returns `None` in its path-score slot; only the n-best
+  decoder computes path scores. `SeqLabel` discards the slot, so nothing
+  downstream depends on it.
+
+---
+
+## Further reading
+
+| Document | Contents |
+|---|---|
+| [model/README.md](model/README.md) | Every module, its tensor shapes, and the data flow between them |
+| [utils/README.md](utils/README.md) | Data pipeline, alphabets, and how the metrics are computed |
+| [BERT/README.md](BERT/README.md) | The BERT feature-extraction path and word-piece alignment |
+| [sample_data/README.md](sample_data/README.md) | Data format, tag schemes, and where to get the real corpus |
+| [NOTICE](NOTICE) | Provenance and attribution |
+
+---
+
+## Citation
 
 ```bibtex
 @inproceedings{luo2020hierarchical,
@@ -252,18 +340,15 @@ If you use this code, please cite:
   booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
   year={2020}
 }
+
+@inproceedings{yang2018ncrf,
+  title={{NCRF++}: An Open-source Neural Sequence Labeling Toolkit},
+  author={Yang, Jie and Zhang, Yue},
+  booktitle={Proceedings of ACL 2018, System Demonstrations},
+  year={2018}
+}
 ```
 
----
+## License
 
-## 📄 License
-
-This project is licensed under the **Apache License 2.0** — see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgements
-
-- [NCRF++](https://github.com/jiesutd/NCRFpp) — The base framework for neural sequence labeling
-- [Google BERT](https://github.com/google-research/bert) — Pre-trained language model for contextual embeddings
-- [GloVe](https://nlp.stanford.edu/projects/glove/) — Pre-trained word vectors
+Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).

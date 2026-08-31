@@ -127,3 +127,15 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# macOS / editor cruft
+.DS_Store
+.vscode/
+.idea/
+
+# Training artefacts: checkpoints, the pickled dataset, and score dumps.
+# Nothing here is reproducible input -- regenerate it by running main.py.
+result/
+scores/
+*.dset
+*.model

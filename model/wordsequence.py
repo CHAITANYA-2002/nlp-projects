@@ -63,14 +63,10 @@ class WordSequence(nn.Module):
         # Word representation module (word emb + char features + label similarity)
         self.wordrep = WordRep(data)
 
-        # Calculate input dimension for the main BiLSTM:
-        # word_emb_dim + global_hidden_dim (from sentence-level features)
-        self.input_size = data.word_emb_dim + data.global_hidden_dim
-        if self.use_char:
-            # Add IntNet character feature dimension
-            kernel_type = data.HP_intNet_kernel_type
-            char_dim = data.HP_char_hidden_dim
-            self.input_size += int( (data.HP_intNet_layer - 1) // 2 * char_dim * kernel_type + char_dim * 2 * kernel_type)
+        # Input dimension for the main BiLSTM: whatever WordRep emits
+        # (word_emb_dim + IntNet character features) plus the sentence-level
+        # global feature appended in forward().
+        self.input_size = self.wordrep.output_dim + data.global_hidden_dim
         
         # BiLSTM: split hidden dim in half for each direction
         if self.bilstm_flag:

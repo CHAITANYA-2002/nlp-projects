@@ -30,6 +30,10 @@ def BIO2BIOES(input_file, output_file):
     print("Convert BIO -> BIOES for file:", input_file)
     with open(input_file,'r') as in_file:
         fins = in_file.readlines()
+    # Each sentence is flushed when a blank line is seen, so a file whose last
+    # sentence has no trailing blank line would lose that sentence.
+    if fins and fins[-1].strip():
+        fins.append("\n")
     fout = open(output_file,'w')
     words = []
     labels = []
@@ -72,6 +76,10 @@ def BIOES2BIO(input_file, output_file):
     print("Convert BIOES -> BIO for file:", input_file)
     with open(input_file,'r') as in_file:
         fins = in_file.readlines()
+    # Each sentence is flushed when a blank line is seen, so a file whose last
+    # sentence has no trailing blank line would lose that sentence.
+    if fins and fins[-1].strip():
+        fins.append("\n")
     fout = open(output_file,'w')
     words = []
     labels = []
@@ -109,6 +117,10 @@ def IOB2BIO(input_file, output_file):
     print("Convert IOB -> BIO for file:", input_file)
     with open(input_file,'r') as in_file:
         fins = in_file.readlines()
+    # Each sentence is flushed when a blank line is seen, so a file whose last
+    # sentence has no trailing blank line would lose that sentence.
+    if fins and fins[-1].strip():
+        fins.append("\n")
     fout = open(output_file,'w')
     words = []
     labels = []
@@ -139,6 +151,10 @@ def choose_label(input_file, output_file):
     """Extract only the first and last columns from a CoNLL-format file."""
     with open(input_file,'r') as in_file:
         fins = in_file.readlines()
+    # Each sentence is flushed when a blank line is seen, so a file whose last
+    # sentence has no trailing blank line would lose that sentence.
+    if fins and fins[-1].strip():
+        fins.append("\n")
     with open(output_file,'w') as fout:
         for line in fins:
             if len(line) < 3:
